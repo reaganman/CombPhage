@@ -10,7 +10,7 @@ lovis4u -gff $RESULTS_DIR/pharokka_results/single_gffs/ \
     -scc -hl -sxa -c A4L 
 
 # update annotations table to color code overlaps
-python Scripts/update_annotations_table_opt.py \
+python Scripts/update_annotations_table.py \
     --clusters $RESULTS_DIR/cluster_membership.tsv \
     --overlaps $RESULTS_DIR/optimized_overlaps.tsv \
     --annotations $RESULTS_DIR/lovis4u/feature_annotation_table.tsv

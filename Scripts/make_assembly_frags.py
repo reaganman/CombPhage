@@ -8,6 +8,8 @@ import ast
 import os
 from collections import defaultdict
 from BCBio import GFF
+import itertools
+
 
 
 
@@ -58,6 +60,7 @@ def split_gff(gff_path, out_path, frag_start, frag_stop, frag_num):
             out_handle.write("\t".join(map(str, row)) + "\n")
 
     print(f"✅ Filtered GFF written to {out_path}")
+
 
 
 def make_frags(chosen_seqs, n_frags, topology, overlaps):
@@ -135,6 +138,149 @@ def make_frags(chosen_seqs, n_frags, topology, overlaps):
 
 
 
+
+def write_concatenated_assemblies_no_overlap(fragments, overlap_lengths, outdir):
+    """
+    Write one FASTA per fragment combination, concatenating fragments
+    while removing duplicated overlap regions.
+    """
+    os.makedirs(outdir, exist_ok=True)
+
+    for idx, combo in enumerate(itertools.product(*fragments), start=1):
+        assembled_seq = []
+        frag_ids = []
+
+        for i, frag in enumerate(combo):
+            seq = str(frag.seq)
+
+            # Trim left overlap for all but first fragment
+            if i > 0:
+                trim = overlap_lengths[i - 1]
+                seq = seq[trim:]
+
+            assembled_seq.append(seq)
+            frag_ids.append(frag.id)
+
+        full_seq = "".join(assembled_seq)
+
+        record = SeqRecord(
+            Seq(full_seq),
+            id=f"assembly_{idx}",
+            description=" | ".join(frag_ids)
+        )
+
+        out_path = os.path.join(outdir, f"assembly_{idx}.fasta")
+        SeqIO.write(record, out_path, "fasta")
+
+        print(f"Wrote {out_path}")
+
+
+
+
+def write_assembly_manifest_tsv(
+    fragments,
+    boundaries,
+    overlap_lengths,
+    assembly_manifest_path,
+    module_table_path,
+):
+    """
+    Writes two TSVs:
+
+    1) Assembly manifest (assembly coordinates respect overlap trimming)
+    2) Module table (untrimmed source + assembly coordinates, long format)
+    """
+
+    n_frags = len(fragments)
+
+    # -----------------------
+    # Assembly manifest header
+    # -----------------------
+    manifest_header = ["assembly"]
+    for i in range(1, n_frags + 1):
+        manifest_header.extend([
+            f"frag_{i}_source",
+            f"frag_{i}_source_start",
+            f"frag_{i}_source_stop",
+            f"frag_{i}_assembly_start",
+            f"frag_{i}_assembly_stop",
+        ])
+
+    with open(assembly_manifest_path, "w") as mf, open(module_table_path, "w") as mt:
+        # Write headers
+        mf.write("\t".join(manifest_header) + "\n")
+        mt.write(
+            "\t".join([
+                "assembly",
+                "fragment",
+                "source_genome",
+                "source_start",
+                "source_stop",
+                "assembly_start",
+                "assembly_stop",
+                "trim_left",
+                "trim_right",
+            ]) + "\n"
+        )
+
+        # Iterate over all assemblies
+        for asm_idx, combo in enumerate(itertools.product(*fragments), start=1):
+            assembly_id = f"assembly_{asm_idx}"
+            manifest_row = [assembly_id]
+
+            assembly_pos = 1  # 1-based assembly coordinates
+
+            for i, frag in enumerate(combo):
+                frag_id = frag.id
+                genome_id, frag_num = frag_id.rsplit("_frag", 1)
+                frag_num = int(frag_num)
+
+                # Source genome coordinates (1-based, untrimmed)
+                src_start, src_stop = boundaries[genome_id][frag_num - 1]
+
+                frag_len = len(frag.seq)
+
+                # Overlap trimming logic
+                trim_left = overlap_lengths[i - 1] if i > 0 else 0
+                trim_right = overlap_lengths[i] if i < n_frags - 1 else 0
+
+                effective_len = frag_len - trim_left - trim_right
+
+                asm_start = assembly_pos
+                asm_stop = assembly_pos + effective_len - 1
+
+                # ---- Assembly manifest (unchanged semantics) ----
+                manifest_row.extend([
+                    genome_id,
+                    src_start,
+                    src_stop,
+                    asm_start,
+                    asm_stop,
+                ])
+
+                # ---- Module table (untrimmed coordinates) ----
+                mt.write(
+                    "\t".join(map(str, [
+                        assembly_id,
+                        f"frag_{i+1}",
+                        genome_id,
+                        src_start,
+                        src_stop,
+                        asm_start,
+                        asm_stop,
+                        trim_left,
+                        trim_right,
+                    ])) + "\n"
+                )
+
+                assembly_pos = asm_stop + 1
+
+            mf.write("\t".join(map(str, manifest_row)) + "\n")
+
+    print(f"Assembly manifest written to {assembly_manifest_path}")
+    print(f"Module table written to {module_table_path}")
+
+
 def is_primer_ok(primer_seq, max_homopolymer=4, max_self_comp=4):
     """
     Check primer quality:
@@ -198,18 +344,38 @@ def design_primers_for_fragment(frag_record, target_tm=60, tm_tol=1, max_primer_
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate assembly fragments from user indicated genomes with user indicated overlaps")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Generate assembly fragments from user indicated genomes "
+            "with user indicated overlaps\n"
+            "Example: (from results dir) \npython ../Scripts/make_assembly_frags.py "
+            "--genomes ../../../fastas/bas14-15-16-18.fasta "
+            "--gff_dir ./pharokka_results/single_gffs/ "
+            "--kmers optimized_overlaps.tsv "
+            "--fasta_outdir fragment_fastas "
+            "--gff_outdir fragment_gffs"
+                    ), formatter_class=argparse.RawDescriptionHelpFormatter)   
     parser.add_argument("--genomes", required=True, help="Combined genome FASTA")
     parser.add_argument("--gff_dir", required=True, help="Path to directory with GFFs from pharroka output")
-    parser.add_argument("--kmers", required=True, help="shared_kmers.csv from find_assembly_overlaps.sh")
+    parser.add_argument("--kmers", required=True, help="optimized_overlaps.csv")
     parser.add_argument("--fasta_outdir", required=True, help="Output directory to save fragment FASTAS")
     parser.add_argument("--gff_outdir", required=True, help="Output directory to save fragment GFFs")
     args = parser.parse_args()
 
+    def score_overlap(seq, other_overlaps=[]):
+        """Lower score = better: self + cross complementarity"""
+        self_comp = max_self_complementarity(seq)
+        cross_comp = max([max_self_complementarity(seq, ov) for ov in other_overlaps] + [0])
+        return self_comp + cross_comp
 
-    # --- load genome sequences ---
+    def shared_by_all(row_accs):
+        return all(acc in row_accs for acc in chosen_accessions)
+
+
+    # --- load genome sequences and kmers df ---
     genome_seqs = list(SeqIO.parse(args.genomes, "fasta"))
     accessions = [seq.id for seq in genome_seqs]
+    kmers_df = pd.read_csv(args.kmers)
 
 
     # --- prompt user for which accessions to make fragments from and how many frags ---
@@ -234,8 +400,7 @@ def main():
     print(f"\nMaking {n_frags} fragments with: {', '.join(chosen_accessions)}")
 
 
-    # --- prompt user for assembly topology and overlaps then make fragments ---
-
+    # --- prompt user for assembly topology ---
     while True:
         topology = input("Select topology (1 for linear, 2 for circular assembly): ").strip()
         
@@ -247,49 +412,28 @@ def main():
             break
         else:
             print("Invalid choice. Please enter 1 or 2.\n")
-    
-    overlaps = {}
-    for i in range(1, n_frags): 
-        overlap = input(f"\nEnter overlap between fragment {i} and {i+1}\n").strip()
-        overlap_key = f"{i}-{i+1}"
-        overlaps[overlap_key] = overlap
+
+    # --- prompt user for overlaps ---
+    overlaps_user = {}
+    for i in range(1, n_frags):
+        ov = input(f"\nEnter overlap between fragment {i} and {i+1}: ").strip()
+        overlaps_user[f"{i}-{i+1}"] = ov
+
     if topology == "circular":
-        overlap = input(f"\nEnter overlap between fragment {n_frags} and 1").strip()
-        overlap_key = f"{n_frags}-1"
-        overlaps[overlap_key] = overlap
+        key = f"{n_frags}-1"
+        ov = input(f"\nEnter overlap between fragment {n_frags} and 1: ").strip()
+        overlaps_user[key] = ov
 
-    # check that overlaps exist in shared_kmers.csv 
-    kmers_df = pd.read_csv(args.kmers)
-    kmers_df["accessions"] = kmers_df["accessions"].apply(ast.literal_eval) # convert accessions column from string to list
-    
-    # validate that chosen accessions share all chosen overlaps
-    missing_overlaps = []
+    overlap_lengths = []
+    for i in range(1, n_frags):
+        ov = overlaps_user.get(f"{i}-{i+1}")
+        if ov is None:
+            raise ValueError(f"Missing overlap for fragments {i}-{i+1}")
+        overlap_lengths.append(len(ov))
 
-    for key, seq in overlaps.items():
-        # find all rows where the sequence matches
-        matches = kmers_df[kmers_df["Sequence"] == seq]
-        if matches.empty:
-            missing_overlaps.append((key, seq, "not found in file"))
-            continue
-        # if len[matches] > 1:
-        #     raise ValueError("Overlap seq exists multiple time in shared_kmers.csv!")
+    # --- use chosen overlaps for fragment creation ---
+    fragments, boundaries = make_frags(chosen_seqs, n_frags, topology, overlaps_user)
 
-        # check that all chosen accessions are included in at least one match
-        shared_ok = any(all(acc in acc_list for acc in chosen_accessions)
-                        for acc_list in matches["accessions"])
-        if not shared_ok:
-            missing_overlaps.append((key, seq, "not shared by all chosen accessions"))
-
-    if missing_overlaps:
-        print("\n⚠️  Some overlaps failed validation:")
-        for key, seq, reason in missing_overlaps:
-            print(f"  - Overlap {key} ({seq[:20]}...): {reason}")
-    else:
-        print("\n✅ All chosen overlaps exist and are shared among all chosen accessions!")
-
-    # --- make fragments and save FASTA for each group of frags (frag1 from each genome) ---
-    # make fragments
-    fragments, boundaries = make_frags(chosen_seqs, n_frags, topology, overlaps)
 
     # make GFF for each fragment
     # make sure output directory exists
@@ -309,6 +453,22 @@ def main():
         out_path = os.path.join(args.fasta_outdir, f"fragment_{i}.fasta")
         SeqIO.write(frag_group, out_path, "fasta")
         print(f"Wrote {out_path}")
+
+
+    # --- make concatenated genome assemblies without duplicated overlaps ---
+    assembly_outdir = os.path.join(args.fasta_outdir, "concatenated_assemblies")
+    write_concatenated_assemblies_no_overlap(fragments, overlap_lengths, assembly_outdir)
+
+
+    manifest_path = os.path.join(args.fasta_outdir, "assembly_manifest.tsv")
+    module_table_path = os.path.join(args.fasta_outdir, "module_table.tsv")
+    write_assembly_manifest_tsv(
+        fragments=fragments,
+        boundaries=boundaries,
+        overlap_lengths=overlap_lengths,
+        assembly_manifest_path=manifest_path, 
+        module_table_path=module_table_path
+    )
 
 
     # --- design primers ---

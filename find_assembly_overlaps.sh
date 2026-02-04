@@ -30,7 +30,7 @@ if [ -z "$OUTPUT_DIR" ]; then
     OUTPUT_DIR="./results_${BASENAME}"
 fi
 
-echo "Running RecPhEg with:"
+echo "Running CombPhage with:"
 echo "  INPUT_FASTA       = $INPUT_FASTA"
 echo "  PHAROKKA_DBS      = $PHAROKKA_DBS"
 echo "  OVERLAP_SIZE      = $OVERLAP_SIZE"
