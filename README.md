@@ -2,8 +2,6 @@
 
 **CombPhage** is an pipeline for designing recombinatorial phage engineering experiments.
 
-**NOTE: THIS PIPELINE IS IN DEVELOPMENT AND HAS NOT BEEN TESTED IN-VITRO**
-
 ---
 
 ## 🚀 Overview
