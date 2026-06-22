@@ -6,11 +6,20 @@
 
 ## 🚀 Overview
 
-CombPhage can be used for designing interchangeable genome fragments wigth shared overlaps from related phage genomes.  
+Combphage can be used for designing interchangeable genome fragments wigth shared overlaps from related phage genomes.  
 
 The pipeline currently requires a **combined FASTA file** containing the complete genome sequences of related phages, and a minimum overlap length.
 
 ---
+
+## Installing and Running Combphage
+1. **Setup**
+   The following dependecies are required...
+   
+2. **Running Combphage**
+   From the cloned CombPhage directory, run the following command with the path to your input fasta containing the related phage genomes, the path to the pharokka databases, and the desired minimum overlap size.
+
+   bash find_assembly_overlaps.sh -i <fasta_path> -d <pharokka_DBS_path> -s <min_overlap>
 
 ## 🧩 Workflow
 
