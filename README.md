@@ -21,6 +21,17 @@ The pipeline currently requires a **combined FASTA file** containing the complet
 
    bash find_assembly_overlaps.sh -i <fasta_path> -d <pharokka_DBS_path> -s <min_overlap>
 
+   The find_assembly_overlaps.sh script produces the following outputs
+
+   - filtered_overlaps.tsv -> filtered overlaps for each CDS cluster
+   - cluster_overlap_summary.tsv -> raw overlaps for each CDS cluster
+   - cluster_membership.tsv -> maps cluster ids to CDS members
+   - pharokka_results/ -> directory with results from running pharokka
+   - mmseqs/ -> directory with mmseqs results
+   - lovis4u/
+   - lovis4u_overlaps/ -> directory with CDS maps color-coded by regions containing candidate overlaps
+
+
 ## 🧩 Workflow
 
 The CombPhage workflow is as follows:
