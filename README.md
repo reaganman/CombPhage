@@ -31,8 +31,10 @@ The pipeline currently requires a **combined FASTA file** containing the complet
    - lovis4u/
    - lovis4u_overlaps/ -> directory with CDS maps color-coded by regions containing candidate overlaps
   
-   After the candidate overlaps have been identidied, the researcher can design assemblies visually by inspecting the lovis_overlaps genome maps and filtered_overlaps.tsv, or use the Scripts/suggest_overlaps.py script which selects an optimized set of overlaps prioritizing overlap length and similar size of resulting fragments. 
+   After the candidate overlaps have been identidied, the researcher can design assemblies visually by inspecting the lovis_overlaps genome maps and filtered_overlaps.tsv, or use the Scripts/suggest_overlaps.py script which selects an optimized set of overlaps prioritizing overlap length and similar size of resulting fragments. suggest_overlaps.py
+produces tsv files detailing the top 3 overlaps sets.
 
+One of the output TSVs from the previous script can then be used with Scripts/extract_fragments.py to create fasta files corresponding to the different framents and possible chimeras that they can be used to construct. 
 
 ## 🧩 Workflow
 
