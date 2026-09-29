@@ -1,0 +1,17 @@
+name: combphage
+
+
+channels:
+        - conda-forge
+        - bioconda
+
+
+dependencies:
+        - python=3.12
+        - biopython
+        - pandas
+        - mmseqs2
+        - lovis4u
+        - streamlit
+
+
