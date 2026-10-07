@@ -180,3 +180,163 @@ class CombPhagePipeline:
             self.visualize()
         else:
             self._notify("visualize", "skipped", "Visualization skipped.")
+
+
+def _cli_progress(stage, state, message):
+    """Simple terminal progress reporter used by the command-line interface."""
+    symbols = {
+        "running": "[RUN]",
+        "complete": "[OK]",
+        "skipped": "[SKIP]",
+        "error": "[ERROR]",
+    }
+    print(f"{symbols.get(state, '[INFO]')} {message}", flush=True)
+
+
+def build_parser():
+    """Build the command-line parser without affecting GUI imports."""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description=(
+            "Run the complete CombPhage overlap-discovery pipeline from "
+            "GenBank files or NCBI nucleotide accessions."
+        )
+    )
+
+    input_group = parser.add_mutually_exclusive_group(required=True)
+    input_group.add_argument(
+        "--genbanks",
+        help="Directory containing annotated GenBank files.",
+    )
+    input_group.add_argument(
+        "--accessions",
+        nargs="+",
+        help=(
+            "NCBI nucleotide accession(s) to fetch before analysis, e.g. "
+            "MZ501081.1 MZ501078.1 V01146.1"
+        ),
+    )
+
+    parser.add_argument(
+        "--email",
+        help="Email address required by NCBI Entrez when using --accessions.",
+    )
+    parser.add_argument(
+        "-o",
+        "--outdir",
+        required=True,
+        help="Output directory for the complete CombPhage run.",
+    )
+    parser.add_argument(
+        "--min-overlap",
+        type=int,
+        default=25,
+        help="Minimum filtered overlap size in bp (default: 25).",
+    )
+    parser.add_argument(
+        "--max-homopolymer",
+        type=int,
+        default=4,
+        help="Maximum allowed homopolymer length (default: 4).",
+    )
+    parser.add_argument(
+        "--no-visualization",
+        action="store_true",
+        help="Skip the final LoVis4u visualization stage.",
+    )
+    parser.add_argument(
+        "--repo-root",
+        default=str(Path(__file__).resolve().parent),
+        help=(
+            "CombPhage repository root containing the Scripts directory. "
+            "Defaults to the directory containing this file."
+        ),
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help=(
+            "Remove an existing non-empty output directory before starting. "
+            "Use with care."
+        ),
+    )
+
+    return parser
+
+
+def main():
+    """Command-line entry point. The class above remains importable by app.py."""
+    parser = build_parser()
+    args = parser.parse_args()
+
+    if args.accessions:
+        if len(args.accessions) < 2:
+            parser.error("CombPhage requires at least two genomes for comparison.")
+        if not args.email:
+            parser.error("--email is required when using --accessions.")
+
+    if args.min_overlap < 1:
+        parser.error("--min-overlap must be at least 1.")
+
+    if args.max_homopolymer < 1:
+        parser.error("--max-homopolymer must be at least 1.")
+
+    run_dir = Path(args.outdir).expanduser().resolve()
+
+    if run_dir.exists() and any(run_dir.iterdir()):
+        if args.force:
+            shutil.rmtree(run_dir)
+        else:
+            parser.error(
+                f"Output directory already exists and is not empty: {run_dir}\n"
+                "Choose a new directory or rerun with --force."
+            )
+
+    pipeline = CombPhagePipeline(
+        repo_root=args.repo_root,
+        run_dir=run_dir,
+        progress_callback=_cli_progress,
+    )
+
+    try:
+        if args.accessions:
+            _cli_progress(
+                "fetch",
+                "running",
+                f"Fetching {len(args.accessions)} GenBank record(s) from NCBI...",
+            )
+            pipeline.fetch_genbanks(args.accessions, args.email)
+        else:
+            source_dir = Path(args.genbanks).expanduser().resolve()
+            if not source_dir.exists() or not source_dir.is_dir():
+                parser.error(f"GenBank directory does not exist: {source_dir}")
+
+            pipeline.use_local_genbanks(source_dir)
+
+        pipeline.run_all(
+            min_size=args.min_overlap,
+            max_homo_size=args.max_homopolymer,
+            visualize=not args.no_visualization,
+        )
+
+    except CombPhagePipelineError as exc:
+        print(f"\nCombPhage failed during stage: {exc.stage}", file=sys.stderr)
+        print(str(exc), file=sys.stderr)
+        if exc.log_file:
+            print(f"Log: {exc.log_file}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"\nCombPhage failed: {exc}", file=sys.stderr)
+        return 1
+
+    print("\nCombPhage analysis complete.")
+    print(f"Results: {run_dir}")
+    print(f"Prepared genomes: {pipeline.prepped_dir}")
+    print(f"Overlap results: {pipeline.overlaps_dir}")
+    print(f"Logs: {pipeline.logs_dir}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
